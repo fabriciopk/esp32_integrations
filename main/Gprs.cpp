@@ -20,13 +20,20 @@ extern "C"
   #include "netif/ppp/pppos.h"
   #include "netif/ppp/ppp.h"
   #include "lwip/pppapi.h"
+
+  #include "lwip/err.h"
+  #include "lwip/sockets.h"
+  #include "lwip/sys.h"
+  #include "lwip/netdb.h"
+  #include "lwip/dns.h"
 /*UART port file descriptor*/
 
 }
 
 
-static const char *TAG_GPRS = "[GPRS]";
 static const char *TAG = "[PPPOS CLIENT]";
+static const char *TAG_SOCKET = "[SOCKET]";
+
 static uint8_t conn_ok;
 static uart_port_t uart_num;
 
@@ -67,11 +74,12 @@ static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
         }
         case PPPERR_USER: {
                 ESP_LOGE(TAG,"status_cb: User interrupt\n");
+                conn_ok = GSM_STATE_DISCONNECTED;
                 break;
         }
         case PPPERR_CONNECT: {
                 ESP_LOGE(TAG,"status_cb: Connection lost\n");
-                conn_ok = 0;
+                conn_ok = GSM_STATE_DISCONNECTED;
                 break;
         }
         case PPPERR_AUTHFAIL: {
@@ -137,6 +145,11 @@ PPPtask(std::string name) : Task(name, 4096*5) {
         tcpip_adapter_init();
         configUart();
 };
+
+int get_gsm_status(){
+        return conn_ok;
+}
+
 private:
 /**
  * @brief Configure the communication with the gsm module
@@ -188,15 +201,14 @@ void run(void* data) {
         while (uart_read_bytes(uart_num, (uint8_t*)ppp_data, BUF_SIZE, 100 / portTICK_RATE_MS)) {
                 delay(100);
         }
-        uart_write_bytes(uart_num, "AT+CGACT=0,1\r\n", 14);
+                      uart_write_bytes(uart_num, "AT+CGACT=0,1\r\n", 14);
         uart_wait_tx_done(uart_num, 10 / portTICK_RATE_MS);
-        delay(1000);
+        delay(10000);
 
 
-        conn_ok = 98;
         while(1)
         {
-                init_ok = 1;
+                init_ok = GSM_STATE_CONNECTED;
                 // Init gsm
                 int gsmCmdIter = 0;
                 while(1)
@@ -249,7 +261,7 @@ void run(void* data) {
                                                 }
                                                 else {
                                                         ESP_LOGE(TAG, "Wrong response, expected [%s]\r\n", GSM_MGR_InitCmds[gsmCmdIter].cmdResponseOnOk);
-                                                        init_ok = 0;
+                                                        init_ok = GSM_STATE_DISCONNECTED;
                                                         break;
                                                 }
                                         }
@@ -259,12 +271,12 @@ void run(void* data) {
                                 if (timeoutCnt > GSM_MGR_InitCmds[gsmCmdIter].timeoutMs)
                                 {
                                         ESP_LOGE(TAG,"[GSM INIT] No response, Gsm Init Error\r\n");
-                                        init_ok = 0;
+                                        init_ok = GSM_STATE_DISCONNECTED;
                                         break;
                                 }
                         }//GSM responses
 
-                        if (init_ok == 0) {
+                        if (init_ok == GSM_STATE_DISCONNECTED) {
                                 // No response or not as expected
                                 delay(5000);
                                 init_ok = 1;
@@ -275,14 +287,12 @@ void run(void* data) {
                         if (gsmCmdIter == 3) delay(1500);
                         gsmCmdIter++;
                         if (gsmCmdIter >= GSM_MGR_InitCmdsSize) break; // All init commands sent
-                        // if ((pass) && (gsmCmdIter == 2)) gsmCmdIter = 4;
-                        // if (gsmCmdIter == 6) pass++;
                 }
 
                 ppp = pppapi_pppos_create(&ppp_netif,
                                           ppp_output_callback, ppp_status_cb, NULL);
 
-                if (conn_ok == 98) {
+                if (conn_ok == GSM_STATE_FIRSTINIT) {
                         if(ppp == NULL) {
                                 ESP_LOGE(TAG, "Error init pppos");
                                 return;
@@ -302,97 +312,153 @@ void run(void* data) {
                         if(len > 0) {
                                 pppos_input_tcpip(ppp, (uint8_t*)ppp_data, len);
                         }
-                        // Check if disconnected
-                        if (conn_ok == 0) {
+                        // Check if disconnected, start AT cmd commands
+                        if (conn_ok == GSM_STATE_DISCONNECTED) {
                                 ESP_LOGE(TAG, "Disconnected, trying again...");
                                 pppapi_close(ppp, 0);
                                 gsmCmdIter = 0;
-                                conn_ok = 89;
+                                conn_ok = GSM_STATE_IDLE;
                                 delay(1000);
                                 break;
                         }
-                }
+                }// *** Handle GSM modem responses ***
         }
 }
 
 ppp_pcb *ppp;
 const char *PPP_User = CONFIG_GSM_INTERNET_USER;
 const char *PPP_Pass = CONFIG_GSM_INTERNET_PASSWORD;
+
+typedef struct
+{
+        const char *cmd;
+        uint16_t cmdSize;
+        const char *cmdResponseOnOk;
+        uint32_t timeoutMs;
+}GSM_Cmd;
 /*Connection status*/
 /*GSM AT COMANDS LIST*/
 GSM_Cmd GSM_MGR_InitCmds[11] =
 {
-		{
-				.cmd = "AT\r\n",
-				.cmdSize = sizeof("AT\r\n")-1,
-				.cmdResponseOnOk = GSM_OK_Str,
-				.timeoutMs = 3000,
-		},
-		{
-				.cmd = "ATH\r\n",
-				.cmdSize = sizeof("ATH\r\n")-1,
-				.cmdResponseOnOk = GSM_OK_Str,
-				.timeoutMs = 3000,
-		},
-		{
-				.cmd = "AT+CFUN=1,0\r\n",
-				.cmdSize = sizeof("AT+CFUN=1,0\r\n")-1,
-				.cmdResponseOnOk = GSM_OK_Str,
-				.timeoutMs = 3000,
-		},
-		{
-				.cmd = "ATE0\r\n",
-				.cmdSize = sizeof("ATE0\r\n")-1,
-				.cmdResponseOnOk = GSM_OK_Str,
-				.timeoutMs = 3000,
-		},
-		{
-				.cmd = "AT+CGATT=1\r\n",
-				.cmdSize = sizeof("AT+CGATT=1\r\n")-1,
-				.cmdResponseOnOk = GSM_OK_Str,
-				.timeoutMs = 3000,
-		},
-		{
-				.cmd = "AT+CREG?\r\n",
-				.cmdSize = sizeof("AT+CREG?\r\n")-1,
-				.cmdResponseOnOk = "CREG: 0,1",
-				.timeoutMs = 3000,
-		},
-		{
-				.cmd = "AT+CGDCONT=1,\"IP\",\"apn\"\r",
-				.cmdSize = sizeof("AT+CGDCONT=1,\"IP\",\"apn\"\r")-1,
-				.cmdResponseOnOk = GSM_OK_Str,
-				.timeoutMs = 8000,
-		},
-		{
-				.cmd = "AT+CGQREQ=1\r\n",
-				.cmdSize = sizeof("AT+CGQREQ=1\r\n")-1,
-				.cmdResponseOnOk = GSM_OK_Str,
-				.timeoutMs = 10000,
-		},
-		{
-				.cmd = "AT+CGQMIN=1\r\n",
-				.cmdSize = sizeof("AT+CGQMIN=1\r\n")-1,
-				.cmdResponseOnOk = GSM_OK_Str,
-				.timeoutMs = 10000,
-		},
-		{
-				.cmd = "AT+CGEREP=1,0\r\n",
-				.cmdSize = sizeof("AT+CGEREP=1,0\r\n")-1,
-				.cmdResponseOnOk = GSM_OK_Str,
-				.timeoutMs = 10000,
-		},
-		{
-				.cmd = "AT+CGDATA=\"PPP\",1\r\n",
-				.cmdSize = sizeof("AT+CGDATA=\"PPP\",1\r\n")-1,
-				.cmdResponseOnOk = "CONNECT",
-				.timeoutMs = 30000,
-		}
+        {
+                .cmd = "AT\r\n",
+                .cmdSize = sizeof("AT\r\n")-1,
+                .cmdResponseOnOk = GSM_OK_Str,
+                .timeoutMs = 3000,
+        },
+        {
+                .cmd = "ATH\r\n",
+                .cmdSize = sizeof("ATH\r\n")-1,
+                .cmdResponseOnOk = GSM_OK_Str,
+                .timeoutMs = 3000,
+        },
+        {
+                .cmd = "AT+CFUN=1,0\r\n",
+                .cmdSize = sizeof("AT+CFUN=1,0\r\n")-1,
+                .cmdResponseOnOk = GSM_OK_Str,
+                .timeoutMs = 3000,
+        },
+        {
+                .cmd = "ATE0\r\n",
+                .cmdSize = sizeof("ATE0\r\n")-1,
+                .cmdResponseOnOk = GSM_OK_Str,
+                .timeoutMs = 3000,
+        },
+        {
+                .cmd = "AT+CGATT=1\r\n",
+                .cmdSize = sizeof("AT+CGATT=1\r\n")-1,
+                .cmdResponseOnOk = GSM_OK_Str,
+                .timeoutMs = 3000,
+        },
+        {
+                .cmd = "AT+CREG?\r\n",
+                .cmdSize = sizeof("AT+CREG?\r\n")-1,
+                .cmdResponseOnOk = "CREG: 0,1",
+                .timeoutMs = 3000,
+        },
+        {
+                .cmd = "AT+CGDCONT=1,\"IP\",\"apn\"\r",
+                .cmdSize = sizeof("AT+CGDCONT=1,\"IP\",\"apn\"\r")-1,
+                .cmdResponseOnOk = GSM_OK_Str,
+                .timeoutMs = 8000,
+        },
+        {
+                .cmd = "AT+CGQREQ=1\r\n",
+                .cmdSize = sizeof("AT+CGQREQ=1\r\n")-1,
+                .cmdResponseOnOk = GSM_OK_Str,
+                .timeoutMs = 10000,
+        },
+        {
+                .cmd = "AT+CGQMIN=1\r\n",
+                .cmdSize = sizeof("AT+CGQMIN=1\r\n")-1,
+                .cmdResponseOnOk = GSM_OK_Str,
+                .timeoutMs = 10000,
+        },
+        {
+                .cmd = "AT+CGEREP=1,0\r\n",
+                .cmdSize = sizeof("AT+CGEREP=1,0\r\n")-1,
+                .cmdResponseOnOk = GSM_OK_Str,
+                .timeoutMs = 10000,
+        },
+        {
+                .cmd = "AT+CGDATA=\"PPP\",1\r\n",
+                .cmdSize = sizeof("AT+CGDATA=\"PPP\",1\r\n")-1,
+                .cmdResponseOnOk = "CONNECT",
+                .timeoutMs = 30000,
+        }
 };
 };
 
 
 void GPRS::start() {
-        PPPtask* ppp_task = new PPPtask("ppp_task");
+        ppp_task = new PPPtask("ppp_task");
         ppp_task->start();
+}
+
+
+void GPRS::sent_data(const char* data, u32_t len) {
+
+        int socket_fd,accept_fd;
+        int addr_size,sent_data; char data_buffer[80];
+        struct sockaddr_in sa,ra,isa;
+
+        while(1) {
+                /*wait for the gsm connection*/
+                while (ppp_task->get_gsm_status() != GSM_STATE_CONNECTED) {
+                        vTaskDelay(500 / portTICK_PERIOD_MS);
+                }
+
+                socket_fd = socket(PF_INET, SOCK_STREAM, 0);
+                if ( socket_fd < 0 ) {
+                        ESP_LOGE(TAG_SOCKET, "... Failed to allocate socket.");
+                        close(socket_fd);
+                        vTaskDelay(1000 / portTICK_PERIOD_MS);
+                        continue;
+                }
+
+                memset(&sa, 0, sizeof(struct sockaddr_in));
+                sa.sin_family = AF_INET;
+                sa.sin_addr.s_addr = inet_addr(SENDER_IP_ADDR);
+                sa.sin_port = htons(SENDER_PORT_NUM);
+
+                if(connect(socket_fd, (struct sockaddr*)&sa, sizeof(struct sockaddr)) < 0)
+                {
+                        ESP_LOGE(TAG_SOCKET, "connect failed \n");
+                        close(socket_fd);
+                        vTaskDelay(1000 / portTICK_PERIOD_MS);
+                        continue;
+                }
+                ESP_LOGI(TAG_SOCKET, "... connected");
+
+                if (write(socket_fd, data, len) < 0) {
+                        ESP_LOGE(TAG_SOCKET, "... socket send failed");
+                        close(socket_fd);
+                        vTaskDelay(4000 / portTICK_PERIOD_MS);
+                        continue;
+                }
+
+                ESP_LOGI(TAG_SOCKET, "... socket send success");
+                close(socket_fd);
+                break;
+        }
 }

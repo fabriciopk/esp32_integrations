@@ -13,6 +13,12 @@
 #include "LiquidCrystal.h"
 #include "Buzzer.h"
 #include "Keypad.h"
+#include "Gprs.h"
+
+extern "C" {
+  // #include "gprs.h"
+  void app_main();
+}
 
 using namespace std;
 
@@ -45,6 +51,8 @@ using namespace std;
 
 //Keypad keypad(makeKeymap(hexaKeys), *rowPins, *colPins, ROWS, COLS );
 Keypad keypad;
+
+GPRS gprs;
 
 Buzzer buzzer (buzzer_pin);
 LiquidCrystal lcd (lcd_rs_pin, lcd_en_pin, lcd_d0_pin, lcd_d1_pin, lcd_d2_pin, lcd_d3_pin);
@@ -110,9 +118,7 @@ void testRFID() {
 }
 
 
-extern "C" {
-void app_main();
-}
+
 //
 //class MyTask: public Task {
 //    void run(void* data) {
@@ -126,13 +132,26 @@ void app_main();
 int i = 0;
 
 void app_main() {
-    mfrc522.PCD_Init();		// Init MFRC522
+    //
+    gprs.start();
+    // while (get_gsm_status() != 1 && gprs_init()) {
+    //   vTaskDelay(10 / portTICK_RATE_MS);
+    // }
+    //
+    // vTaskDelay(5000 / portTICK_RATE_MS);
+    //
+    // ppposDisconnect(1,1);
 
-    vTaskDelay(2000 / portTICK_PERIOD_MS);
-    lcd_write("Welcome", "Beep");
-    vTaskDelay(500 / portTICK_PERIOD_MS);
-    buzzer.beep(welcome_beep);
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    // GPRStask* gprsTask = new GPRStask("ppposTask");
+
+
+    // mfrc522.PCD_Init();		// Init MFRC522
+    //
+    // vTaskDelay(2000 / portTICK_PERIOD_MS);
+    // lcd_write("Welcome", "Beep");
+    // vTaskDelay(500 / portTICK_PERIOD_MS);
+    // buzzer.beep(welcome_beep);
+    // vTaskDelay(1000 / portTICK_PERIOD_MS);
 
 
 //    ESP32CPP::GPIO::setOutput(GPIO_NUM_33);
@@ -164,13 +183,13 @@ void app_main() {
 
 //    lcd_write("Read Key", *key);
 
-    printf("INIT %d\n", i++);
-    testRFID();
-
-    while(1) {
-        printf("%d\n", i++);
-        vTaskDelay(200 / portTICK_PERIOD_MS);
-    }
+    // printf("INIT %d\n", i++);
+    // testRFID();
+    //
+    // while(1) {
+    //     printf("%d\n", i++);
+    //     vTaskDelay(200 / portTICK_PERIOD_MS);
+    // }
 //    MyTask* pMyTask = new MyTask();
 //    pMyTask->setStackSize(20000);
 //    pMyTask->start();

@@ -39,12 +39,97 @@ static uart_port_t uart_num;
 static uint8_t disconectPPP;
 
 
+static int atCmd_waitResponse(const char * cmd, const char *resp, const char * resp1, int cmdSize, int timeout, char **response, int size)
+{
+        char sresp[256] = {'\0'};
+        char data[256] = {'\0'};
+        int len, res = 1, idx = 0, tot = 0, timeoutCnt = 0;
+
+        // ** Send command to GSM
+        vTaskDelay(100 / portTICK_PERIOD_MS);
+        uart_flush(uart_num);
+
+        if (cmd != NULL) {
+                if (cmdSize == -1) cmdSize = strlen(cmd);
+                uart_write_bytes(uart_num, (const char*)cmd, cmdSize);
+                uart_wait_tx_done(uart_num, 100 / portTICK_RATE_MS);
+        }
+
+        if (response != NULL) {
+                // Read GSM response into buffer
+                char *pbuf = *response;
+                len = uart_read_bytes(uart_num, (uint8_t*)data, 256, timeout / portTICK_RATE_MS);
+                while (len > 0) {
+                        if ((tot+len) >= size) {
+                                char *ptemp = (char*)realloc(pbuf, size+512);
+                                if (ptemp == NULL) return 0;
+                                size += 512;
+                                pbuf = ptemp;
+                        }
+                        memcpy(pbuf+tot, data, len);
+                        tot += len;
+                        response[tot] = '\0';
+                        len = uart_read_bytes(uart_num, (uint8_t*)data, 256, 100 / portTICK_RATE_MS);
+                }
+                *response = pbuf;
+                return tot;
+        }
+
+        // ** Wait for and check the response
+        idx = 0;
+        while(1)
+        {
+                memset(data, 0, 256);
+                len = 0;
+                len = uart_read_bytes(uart_num, (uint8_t*)data, 256, 10 / portTICK_RATE_MS);
+                if (len > 0) {
+                        for (int i=0; i<len; i++) {
+                                if (idx < 256) {
+                                        if ((data[i] >= 0x20) && (data[i] < 0x80)) sresp[idx++] = data[i];
+                                        else sresp[idx++] = 0x2e;
+                                }
+                        }
+                        tot += len;
+                }
+                else {
+                        if (tot > 0) {
+                                // Check the response
+                                if (strstr(sresp, resp) != NULL) {
+                                        ESP_LOGI(TAG,"AT RESPONSE: [%s]", sresp);
+                                        break;
+                                }
+                                else {
+                                        if (resp1 != NULL) {
+                                                if (strstr(sresp, resp1) != NULL) {
+                                                        ESP_LOGI(TAG,"AT RESPONSE (1): [%s]", sresp);
+                                                        res = 2;
+                                                        break;
+                                                }
+                                        }
+                                        ESP_LOGI(TAG,"AT BAD RESPONSE: [%s]", sresp);
+                                        res = 0;
+                                        break;
+                                }
+                        }
+                }
+
+                timeoutCnt += 10;
+                if (timeoutCnt > timeout) {
+                        ESP_LOGE(TAG,"AT: TIMEOUT");
+                        res = 0;
+                        break;
+                }
+        }
+
+        return res;
+}
+
 
 class PPPtask : public Task {
 public:
 PPPtask(std::string name) : Task(name, 2048*2) {
+        ESP_LOGI(TAG,"A new ppp task is on the way\n");
         tcpip_adapter_init();
-        configUart();
 };
 
 int get_gsm_status(){
@@ -132,31 +217,6 @@ static u32_t ppp_output_callback(ppp_pcb *pcb, u8_t *data, u32_t len, void *ctx)
         uart_wait_tx_done(uart_num, 10 / portTICK_RATE_MS);
         return ret;
 }
-/**
- * @brief Configure the communication with the gsm module
- */
-
-void configUart() {
-        uart_num = UART_NUM_1;
-        gpio_set_direction((gpio_num_t)UART_GPIO_TX, GPIO_MODE_OUTPUT);
-        gpio_set_direction((gpio_num_t)UART_GPIO_RX, GPIO_MODE_INPUT);
-        gpio_set_pull_mode((gpio_num_t)UART_GPIO_RX, GPIO_PULLUP_ONLY);
-
-        uart_config_t uart_config = {
-                .baud_rate = UART_BDRATE,
-                .data_bits = UART_DATA_8_BITS,
-                .parity = UART_PARITY_DISABLE,
-                .stop_bits = UART_STOP_BITS_1,
-                .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-                .rx_flow_ctrl_thresh = 122
-        };
-
-        //Configure UART1 parameters
-        uart_param_config(uart_num, &uart_config);
-        uart_set_pin(uart_num, (gpio_num_t)UART_GPIO_TX, (gpio_num_t)UART_GPIO_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-        uart_driver_install(uart_num, BUF_SIZE * 2, BUF_SIZE * 2, 0, NULL, 0);
-}
-
 /**
  * @brief Perform the task handling for gprs ppp client
  */
@@ -251,94 +311,8 @@ void run(void* data) {
                         break;
                 }
         }
-        ESP_LOGE(TAG, "Fim task");
-        vTaskDelete(NULL);
-}
-
-
-static int atCmd_waitResponse(const char * cmd, const char *resp, const char * resp1, int cmdSize, int timeout, char **response, int size)
-{
-        char sresp[256] = {'\0'};
-        char data[256] = {'\0'};
-        int len, res = 1, idx = 0, tot = 0, timeoutCnt = 0;
-
-        // ** Send command to GSM
-        vTaskDelay(100 / portTICK_PERIOD_MS);
-        uart_flush(uart_num);
-
-        if (cmd != NULL) {
-                if (cmdSize == -1) cmdSize = strlen(cmd);
-                uart_write_bytes(uart_num, (const char*)cmd, cmdSize);
-                uart_wait_tx_done(uart_num, 100 / portTICK_RATE_MS);
-        }
-
-        if (response != NULL) {
-                // Read GSM response into buffer
-                char *pbuf = *response;
-                len = uart_read_bytes(uart_num, (uint8_t*)data, 256, timeout / portTICK_RATE_MS);
-                while (len > 0) {
-                        if ((tot+len) >= size) {
-                                char *ptemp = (char*)realloc(pbuf, size+512);
-                                if (ptemp == NULL) return 0;
-                                size += 512;
-                                pbuf = ptemp;
-                        }
-                        memcpy(pbuf+tot, data, len);
-                        tot += len;
-                        response[tot] = '\0';
-                        len = uart_read_bytes(uart_num, (uint8_t*)data, 256, 100 / portTICK_RATE_MS);
-                }
-                *response = pbuf;
-                return tot;
-        }
-
-        // ** Wait for and check the response
-        idx = 0;
-        while(1)
-        {
-                memset(data, 0, 256);
-                len = 0;
-                len = uart_read_bytes(uart_num, (uint8_t*)data, 256, 10 / portTICK_RATE_MS);
-                if (len > 0) {
-                        for (int i=0; i<len; i++) {
-                                if (idx < 256) {
-                                        if ((data[i] >= 0x20) && (data[i] < 0x80)) sresp[idx++] = data[i];
-                                        else sresp[idx++] = 0x2e;
-                                }
-                        }
-                        tot += len;
-                }
-                else {
-                        if (tot > 0) {
-                                // Check the response
-                                if (strstr(sresp, resp) != NULL) {
-                                        ESP_LOGI(TAG,"AT RESPONSE: [%s]", sresp);
-                                        break;
-                                }
-                                else {
-                                        if (resp1 != NULL) {
-                                                if (strstr(sresp, resp1) != NULL) {
-                                                        ESP_LOGI(TAG,"AT RESPONSE (1): [%s]", sresp);
-                                                        res = 2;
-                                                        break;
-                                                }
-                                        }
-                                        ESP_LOGI(TAG,"AT BAD RESPONSE: [%s]", sresp);
-                                        res = 0;
-                                        break;
-                                }
-                        }
-                }
-
-                timeoutCnt += 10;
-                if (timeoutCnt > timeout) {
-                        ESP_LOGE(TAG,"AT: TIMEOUT");
-                        res = 0;
-                        break;
-                }
-        }
-
-        return res;
+        conn_ok = GSM_STATE_ENDED;
+        this->stop();
 }
 
 typedef struct
@@ -348,8 +322,8 @@ typedef struct
         const char *cmdResponseOnOk;
         uint32_t timeoutMs;
 }GSM_Cmd;
-/*Connection status*/
-/*GSM AT COMANDS LIST*/
+
+/*GSM INIT AT COMANDS LIST*/
 GSM_Cmd GSM_MGR_InitCmds[11] =
 {
         {
@@ -419,19 +393,91 @@ GSM_Cmd GSM_MGR_InitCmds[11] =
                 .timeoutMs = 30000,
         }
 };
-};
+
+}; /*END OF PPPtask Class*/
 
 
+/**
+ * @brief Configure the communication with the gsm module
+ */
 
+void GPRS::configGprsUart() {
+        uart_num = UART_NUM_1;
+        gpio_set_direction((gpio_num_t)UART_GPIO_TX, GPIO_MODE_OUTPUT);
+        gpio_set_direction((gpio_num_t)UART_GPIO_RX, GPIO_MODE_INPUT);
+        gpio_set_pull_mode((gpio_num_t)UART_GPIO_RX, GPIO_PULLUP_ONLY);
+
+        uart_config_t uart_config = {
+                .baud_rate = UART_BDRATE,
+                .data_bits = UART_DATA_8_BITS,
+                .parity = UART_PARITY_DISABLE,
+                .stop_bits = UART_STOP_BITS_1,
+                .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
+                .rx_flow_ctrl_thresh = 122
+        };
+        //Configure UART1 parameters
+        uart_param_config(uart_num, &uart_config);
+        uart_set_pin(uart_num, (gpio_num_t)UART_GPIO_TX, (gpio_num_t)UART_GPIO_RX, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+        uart_driver_install(uart_num, BUF_SIZE * 2, BUF_SIZE * 2, 0, NULL, 0);
+
+}
+
+GPRS::GPRS() {
+        ppp_task = new PPPtask("ppp_task");
+        configGprsUart();
+}
+
+GPRS::~GPRS(){
+        if(ppp_task) free(ppp_task);
+        ESP_LOGI(TAG,"Our aowesome class just died");
+}
 
 void GPRS::start() {
-        ppp_task = new PPPtask("ppp_task");
         ppp_task->start();
 }
 
 void GPRS::stop() {
         disconectPPP = 1;
 }
+
+uint8_t GPRS::getPPPstatus(){
+        return conn_ok;
+}
+
+void GPRS::getTime(const char* time) {
+        /*AT+CCLK?*/
+        int res=0, nfail=0;
+        while (nfail++ < 5 || res != 1) {
+                res = atCmd_waitResponse("AT+CGACT=0,1\r\n", GSM_OK_Str, NULL, 14, 10000, NULL, 0);
+        }
+}
+
+
+void GPRS::getTerminalID(void *buf) {
+
+        int res=0;
+        memset(buf, 0, 15);
+        res = atCmd_waitResponse("ATE1\r\n", GSM_OK_Str, NULL, 6, 1000, NULL, 0);
+        if(res != 1) return;
+        //ask for the terminal IMEI
+        uart_write_bytes(uart_num, "AT+CGSN\r\n", sizeof("AT+CGSN\r\n"));
+        uart_wait_tx_done(uart_num, 10 / portTICK_RATE_MS);
+        vTaskDelay(1500 / portTICK_PERIOD_MS);
+        //buffer for receive the serial response
+        char* ser_buffer = (char*) malloc(BUF_SIZE);
+        uart_read_bytes(uart_num, (uint8_t*)ser_buffer, BUF_SIZE, 10 / portTICK_RATE_MS);
+
+        atCmd_waitResponse("ATE0\r\n", GSM_OK_Str, NULL, 6, 1000, NULL, 0);
+        //check if we receive the echo from device
+        if(strstr(ser_buffer, "AT+CGSN") != NULL) {
+                memcpy(buf, ser_buffer+13, 15);
+        }else{
+                free(ser_buffer);
+                return;
+        }
+        free(ser_buffer);
+}
+
 
 int GPRS::sent_data(const char* data, u32_t len) {
 
@@ -484,7 +530,7 @@ int GPRS::sent_data(const char* data, u32_t len) {
                         bytes_read = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
                         if (bytes_read < 0) ESP_LOGE(TAG_SOCKET,"recv problem");
                         n_fails++;
-                } while (bytes_read < len && n_fails < 4);
+                } while (bytes_read < len && n_fails < 5);
                 ESP_LOGI(TAG_SOCKET, "Received from server %s\n", recv_buf);
                 break;
         }

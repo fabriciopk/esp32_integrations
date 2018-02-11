@@ -18,6 +18,9 @@ extern "C"
 #define GSM_STATE_CONNECTED      1  //Connected to Internet
 #define GSM_STATE_IDLE           89 //Disconnected from Internet, Task idle, waiting for reconnect request
 #define GSM_STATE_FIRSTINIT      98 //Task started, initializing PPPoS
+#define GSM_STATE_ENDED          97
+
+
 #define BUF_SIZE (1024)
 #define UART_BDRATE 115200
 #define UART_GPIO_TX 10
@@ -27,19 +30,20 @@ extern "C"
 #define SENDER_PORT_NUM 5555
 #define SENDER_IP_ADDR "200.132.24.141"
 
-
 class PPPtask;
 
 class GPRS {
 public:
-
+GPRS();
+~GPRS();
 void start();
 void stop();
 int sent_data(const char* data, u32_t len);
-void getTime();
-void getTerminalID();
-
+void getTime(const char* time);
+void getTerminalID(void *buf);
+uint8_t getPPPstatus();
 private:
+  void configGprsUart();
   PPPtask* ppp_task;
   friend class PPPtask;
 };

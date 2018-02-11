@@ -31,7 +31,6 @@ extern "C"
 
 }
 
-
 static const char *TAG = "[PPPOS CLIENT]";
 static const char *TAG_SOCKET = "[SOCKET]";
 
@@ -40,6 +39,19 @@ static uart_port_t uart_num;
 static uint8_t disconectPPP;
 
 
+
+class PPPtask : public Task {
+public:
+PPPtask(std::string name) : Task(name, 2048*2) {
+        tcpip_adapter_init();
+        configUart();
+};
+
+int get_gsm_status(){
+        return conn_ok;
+}
+
+private:
 static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
         struct netif *pppif = ppp_netif(pcb);
         LWIP_UNUSED_ARG(ctx);
@@ -47,16 +59,10 @@ static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
         switch(err_code) {
         case PPPERR_NONE: {
                 ESP_LOGI(TAG,"status_cb: Connected\n");
-#if PPP_IPV4_SUPPORT
                 ESP_LOGI(TAG,"   ipaddr    = %s\n", ipaddr_ntoa(&pppif->ip_addr));
                 ESP_LOGI(TAG,"   gateway   = %s\n", ipaddr_ntoa(&pppif->gw));
                 ESP_LOGI(TAG,"   netmask   = %s\n", ipaddr_ntoa(&pppif->netmask));
-#endif
-
-#if PPP_IPV6_SUPPORT
-                ESP_LOGI(TAG,"   ip6addr   = %s\n", ip6addr_ntoa(netif_ip6_addr(pppif, 0)));
-#endif
-                conn_ok = 1;
+                conn_ok = GSM_STATE_CONNECTED;
                 break;
         }
         case PPPERR_PARAM: {
@@ -126,25 +132,11 @@ static u32_t ppp_output_callback(ppp_pcb *pcb, u8_t *data, u32_t len, void *ctx)
         uart_wait_tx_done(uart_num, 10 / portTICK_RATE_MS);
         return ret;
 }
-
-
-class PPPtask : public Task {
-public:
-PPPtask(std::string name) : Task(name, 4096*5) {
-        tcpip_adapter_init();
-        configUart();
-};
-
-int get_gsm_status(){
-        return conn_ok;
-}
-
-private:
 /**
  * @brief Configure the communication with the gsm module
  */
-void configUart() {
 
+void configUart() {
         uart_num = UART_NUM_1;
         gpio_set_direction((gpio_num_t)UART_GPIO_TX, GPIO_MODE_OUTPUT);
         gpio_set_direction((gpio_num_t)UART_GPIO_RX, GPIO_MODE_INPUT);
@@ -169,9 +161,11 @@ void configUart() {
  * @brief Perform the task handling for gprs ppp client
  */
 void run(void* data) {
-        struct netif ppp_netif;
 
-        char sresp[256] = {'\0'};
+        struct netif ppp_netif;
+        ppp_pcb *ppp;
+        const char *PPP_User = CONFIG_GSM_INTERNET_USER;
+        const char *PPP_Pass = CONFIG_GSM_INTERNET_PASSWORD;
         char* ppp_data = (char*) malloc(BUF_SIZE);
         char PPP_ApnATReq[sizeof(CONFIG_GSM_APN)+20];
 
@@ -189,42 +183,42 @@ void run(void* data) {
                 delay(100);
         }
 
-      	atCmd_waitResponse("AT+CGACT=0,1\r\n", GSM_OK_Str, "NO CARRIER", 14, 5000, NULL, 0);
+        atCmd_waitResponse("AT+CGACT=0,1\r\n", GSM_OK_Str, "NO CARRIER", 14, 5000, NULL, 0);
         disconectPPP = 0;
         while(1)
         {
-                // Init gsm
+                /*Gsm init*/
                 int gsmCmdIter = 0, nfail = 0;
-
                 while(1)
                 {
-                  int atCmdRes = atCmd_waitResponse(GSM_MGR_InitCmds[gsmCmdIter].cmd, \
-                    GSM_OK_Str, NULL, GSM_MGR_InitCmds[gsmCmdIter].cmdSize, 1000, NULL, 0);
-                  if(atCmdRes != 1 && gsmCmdIter != GSM_MGR_InitCmdsSize -1){
-                    gsmCmdIter = 0;
-                    nfail++;
-                  }else if (gsmCmdIter == GSM_MGR_InitCmdsSize -1) {
-                    break;
-                  }
-                  gsmCmdIter++;
+                        int atCmdRes = atCmd_waitResponse(GSM_MGR_InitCmds[gsmCmdIter].cmd, \
+                                                          GSM_OK_Str, NULL, GSM_MGR_InitCmds[gsmCmdIter].cmdSize, 1000, NULL, 0);
+                        if(atCmdRes != 1 && gsmCmdIter != GSM_MGR_InitCmdsSize -1) {
+                                gsmCmdIter = 0;
+                                nfail++;
+                        }else if (gsmCmdIter == GSM_MGR_InitCmdsSize -1) {
+                                break;
+                        }
+                        gsmCmdIter++;
+                        vTaskDelay(500 / portTICK_PERIOD_MS);
                 }
 
                 ppp = pppapi_pppos_create(&ppp_netif,
                                           ppp_output_callback, ppp_status_cb, NULL);
 
-                if (conn_ok == GSM_STATE_FIRSTINIT) {
-                        if(ppp == NULL) {
-                                ESP_LOGE(TAG, "Error init pppos");
-                                return;
-                        }
-                }
-                conn_ok = 99;
 
+                if (ppp == NULL) {
+                        ESP_LOGE(TAG, "Error init pppos");
+                        return;
+                }
+
+                ppp->settings.persist = 0;
                 pppapi_set_default(ppp);
                 pppapi_set_auth(ppp, PPPAUTHTYPE_ANY, PPP_User, PPP_Pass);
                 //pppapi_set_auth(ppp, PPPAUTHTYPE_NONE, PPP_User, PPP_Pass);
                 pppapi_connect(ppp, 0);
 
+                conn_ok = 99;
                 // *** Handle GSM modem responses ***
                 while(1) {
                         memset(ppp_data, 0, BUF_SIZE);
@@ -241,20 +235,20 @@ void run(void* data) {
                                 delay(1000);
                                 break;
                         }else if (disconectPPP) {
-                          break;
+                                break;
                         }
                 }// *** Handle GSM modem responses ***
 
-                if(disconectPPP){
-                    ESP_LOGE(TAG, "call pppapi_close close");
-                    pppapi_close(ppp, 0);
-                    vTaskDelay(25000 / portTICK_PERIOD_MS);
-                    if (data) free(data);  // free data buffer
-                    ESP_LOGE(TAG, "call ppp_free close");
-	                  if (ppp) ppp_free(ppp);
-                    vTaskDelay(10000 / portTICK_PERIOD_MS);
-                    int res = atCmd_waitResponse("AT+CGACT=0,1\r\n", GSM_OK_Str , "NO CARRIER" , 14, 5000, NULL, 0);
-                    break;
+                if(disconectPPP) {
+                        ESP_LOGE(TAG, "call pppapi_close close");
+                        pppapi_close(ppp, 0);
+                        vTaskDelay(30000 / portTICK_PERIOD_MS);
+                        if (data) free(data); // free data buffer
+                        ESP_LOGE(TAG, "call ppp_free close");
+                        if (ppp) ppp_free(ppp);
+                        if (ppp_data) free(ppp_data);
+                        atCmd_waitResponse("AT+CGACT=0,1\r\n", GSM_OK_Str, "NO CARRIER", 14, 10000, NULL, 0);
+                        break;
                 }
         }
         ESP_LOGE(TAG, "Fim task");
@@ -262,7 +256,7 @@ void run(void* data) {
 }
 
 
-static int atCmd_waitResponse(char * cmd, char *resp, char * resp1, int cmdSize, int timeout, char **response, int size)
+static int atCmd_waitResponse(const char * cmd, const char *resp, const char * resp1, int cmdSize, int timeout, char **response, int size)
 {
         char sresp[256] = {'\0'};
         char data[256] = {'\0'};
@@ -347,15 +341,11 @@ static int atCmd_waitResponse(char * cmd, char *resp, char * resp1, int cmdSize,
         return res;
 }
 
-ppp_pcb *ppp;
-const char *PPP_User = CONFIG_GSM_INTERNET_USER;
-const char *PPP_Pass = CONFIG_GSM_INTERNET_PASSWORD;
-
 typedef struct
 {
-        char *cmd;
+        const char *cmd;
         uint16_t cmdSize;
-        char *cmdResponseOnOk;
+        const char *cmdResponseOnOk;
         uint32_t timeoutMs;
 }GSM_Cmd;
 /*Connection status*/
@@ -439,16 +429,16 @@ void GPRS::start() {
         ppp_task->start();
 }
 
-  void GPRS::stop() {
+void GPRS::stop() {
         disconectPPP = 1;
 }
 
+int GPRS::sent_data(const char* data, u32_t len) {
 
-
-void GPRS::sent_data(const char* data, u32_t len) {
-
-        int socket_fd;
+        int socket_fd, n_fails = 0;
         struct sockaddr_in sa;
+        char recv_buf[len];
+        ssize_t bytes_read;
 
         while(1) {
                 /*wait for the gsm connection*/
@@ -476,6 +466,7 @@ void GPRS::sent_data(const char* data, u32_t len) {
                         vTaskDelay(1000 / portTICK_PERIOD_MS);
                         continue;
                 }
+
                 ESP_LOGI(TAG_SOCKET, "... connected");
 
                 if (write(socket_fd, data, len) < 0) {
@@ -483,10 +474,21 @@ void GPRS::sent_data(const char* data, u32_t len) {
                         close(socket_fd);
                         vTaskDelay(4000 / portTICK_PERIOD_MS);
                         continue;
+                }else{
+                        ESP_LOGI(TAG_SOCKET, "... socket send success");
                 }
 
-                ESP_LOGI(TAG_SOCKET, "... socket send success");
-                close(socket_fd);
+                //Receive the acknowledge from the server
+                memset(&recv_buf[0], 0, sizeof(recv_buf));
+                do {
+                        bytes_read = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
+                        if (bytes_read < 0) ESP_LOGE(TAG_SOCKET,"recv problem");
+                        n_fails++;
+                } while (bytes_read < len && n_fails < 4);
+                ESP_LOGI(TAG_SOCKET, "Received from server %s\n", recv_buf);
                 break;
         }
+
+        close(socket_fd);
+        return bytes_read;
 }

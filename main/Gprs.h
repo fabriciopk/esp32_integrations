@@ -32,9 +32,13 @@ class PPPtask;
 
 class GPRS {
 public:
+
 void start();
 void stop();
-void sent_data(const char* data, u32_t len);
+int sent_data(const char* data, u32_t len);
+void getTime();
+void getTerminalID();
+
 private:
   PPPtask* ppp_task;
   friend class PPPtask;

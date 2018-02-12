@@ -10,7 +10,7 @@ before_script:
   - mkdir /esp/esp-idf
 
   - export IDF_PATH=/esp/esp-idf
-#   - git clone --recursive https://github.com/espressif/esp-idf.git $IDF_PATH
+  - git clone --recursive https://github.com/espressif/esp-idf.git $IDF_PATH
 
   - wget --quiet -O /esp/esp-32-toolchain.tar.gz https://dl.espressif.com/dl/xtensa-esp32-elf-linux64-1.22.0-73-ge28a011-5.2.0.tar.gz
   - tar -xzf /esp/esp-32-toolchain.tar.gz -C /esp

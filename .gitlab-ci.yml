@@ -25,4 +25,4 @@ build:
   stage: build
   script:
     - make defconfig
-    - make all
+    - make app

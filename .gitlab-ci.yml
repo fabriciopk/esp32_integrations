@@ -24,4 +24,5 @@ stages:
 build:
   stage: build
   script:
-    - make all V=1
+    - make defconfig
+    - make all

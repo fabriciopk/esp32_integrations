@@ -174,7 +174,7 @@ static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
         case PPPERR_CONNECT: {
                 ESP_LOGE(TAG,"status_cb: Connection lost\n");
                 vTaskDelay(1000 / portTICK_PERIOD_MS);
-                conn_ok = GSM_STATE_DISCONNECTED;
+                disconectPPP = 1;
                 break;
         }
         case PPPERR_AUTHFAIL: {
@@ -286,16 +286,8 @@ void run(void* data) {
                         if(len > 0) {
                                 pppos_input_tcpip(ppp, (uint8_t*)ppp_data, len);
                         }
-                        // Check if disconnected, start AT cmd commands
-                        if (conn_ok == GSM_STATE_DISCONNECTED) {
-                                ESP_LOGE(TAG, "Disconnected, trying again...");
-                                pppapi_close(ppp, 0);
-                                gsmCmdIter = 0;
-                                conn_ok = GSM_STATE_IDLE;
-                                delay(1000);
-                                break;
-                        }else if (disconectPPP) {
-                                break;
+                        if (disconectPPP) {
+                          break;
                         }
                 }// *** Handle GSM modem responses ***
 
@@ -413,7 +405,7 @@ void GPRS::configGprsUart() {
                 .parity = UART_PARITY_DISABLE,
                 .stop_bits = UART_STOP_BITS_1,
                 .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-                .rx_flow_ctrl_thresh = 122
+                  .rx_flow_ctrl_thresh = 122
         };
         //Configure UART1 parameters
         uart_param_config(uart_num, &uart_config);
@@ -433,6 +425,7 @@ GPRS::~GPRS(){
 }
 
 void GPRS::start() {
+        conn_ok = GSM_STATE_IDLE;
         ppp_task->start();
 }
 
@@ -444,15 +437,46 @@ uint8_t GPRS::getPPPstatus(){
         return conn_ok;
 }
 
-void GPRS::getTime(const char* time) {
-        /*AT+CCLK?*/
-        int res=0, nfail=0;
-        while (nfail++ < 5 || res != 1) {
-                res = atCmd_waitResponse("AT+CGACT=0,1\r\n", GSM_OK_Str, NULL, 14, 10000, NULL, 0);
+/*
+Get time from gprs tracker, and clean the serial buffer
+    return a list with the date and time
+        [y_high, y_low, month, day, hour, minute, second ]
+*/
+void GPRS::getTime(void *buf) {
+        int res=0;
+        memset(buf, 0, 7);
+        char tmp[7];
+
+        uart_write_bytes(uart_num, "AT+CCLK?\r\n", sizeof("AT+CCLK?\r\n"));
+        uart_wait_tx_done(uart_num, 10 / portTICK_RATE_MS);
+        vTaskDelay(1500 / portTICK_PERIOD_MS);
+        //buffer for receive the serial response
+        char* ser_buffer = (char*) malloc(BUF_SIZE);
+        uart_read_bytes(uart_num, (uint8_t*)ser_buffer, BUF_SIZE, 10 / portTICK_RATE_MS);
+
+        char *ptr = strstr(ser_buffer, "+CCLK");
+        if( ptr != NULL) {
+                //+CCLK: "18/02/11,23:44:35"
+                int dt[7];
+                sscanf(ptr,"+CCLK: \"%d/%d/%d,%d:%d:%d", &dt[0],&dt[1],&dt[2],&dt[3],&dt[4],&dt[5]);
+                for(int i=0; i<7; i++){
+                  tmp[i] = (char)dt[i];
+                  printf("%d\n", (int)tmp[i]);
+                }
+                memcpy(buf, tmp, 7);
+        }else{
+                ESP_LOGE(TAG_SOCKET, "Prolem get time");
+                free(ser_buffer);
+                return;
         }
+        free(ser_buffer);
+
 }
 
-
+/*
+Request product serial number identification(IMEI)
+return a list with 8 integer numbers
+*/
 void GPRS::getTerminalID(void *buf) {
 
         int res=0;
@@ -469,9 +493,11 @@ void GPRS::getTerminalID(void *buf) {
 
         atCmd_waitResponse("ATE0\r\n", GSM_OK_Str, NULL, 6, 1000, NULL, 0);
         //check if we receive the echo from device
-        if(strstr(ser_buffer, "AT+CGSN") != NULL) {
-                memcpy(buf, ser_buffer+13, 15);
+        char *ptr = strstr(ser_buffer, "AT+CGSN");
+        if( ptr != NULL) {
+                memcpy(buf, ptr+13, 15);
         }else{
+                ESP_LOGE(TAG_SOCKET, "Prolem get imei");
                 free(ser_buffer);
                 return;
         }

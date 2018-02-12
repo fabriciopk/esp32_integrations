@@ -39,7 +39,7 @@ GPRS();
 void start();
 void stop();
 int sent_data(const char* data, u32_t len);
-void getTime(const char* time);
+void getTime(void *buf);
 void getTerminalID(void *buf);
 uint8_t getPPPstatus();
 private:

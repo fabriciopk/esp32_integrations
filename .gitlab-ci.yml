@@ -1,0 +1,17 @@
+image: ubuntu:14.04
+
+before_script:
+  - apt-get -qq update
+  - apt-get install -y git wget make libncurses-dev flex bison gperf python python-serial
+  - apt-get clean
+  - rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+
+  - mkdir -p /esp
+  - kdir /esp/esp-idf
+
+  - wget -O /esp/esp-32-toolchain.tar.gz https://dl.espressif.com/dl/xtensa-esp32-elf-linux64-1.22.0-73-ge28a011-5.2.0.tar.gz
+  - tar -xzf /esp/esp-32-toolchain.tar.gz -C /esp
+  - rm /esp/esp-32-toolchain.tar.gz
+
+  - export IDF_PATH=/esp/esp-idf
+  - export PATH=$PATH:/esp/xtensa-esp32-elf/bin

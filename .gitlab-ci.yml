@@ -15,3 +15,12 @@ before_script:
 
   - export IDF_PATH=/esp/esp-idf
   - export PATH=$PATH:/esp/xtensa-esp32-elf/bin
+
+
+stages:
+  - build
+
+build:
+  stage: build
+  script:
+    - make all

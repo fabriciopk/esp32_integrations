@@ -26,3 +26,6 @@ build:
   script:
     - make defconfig
     - make app
+  artifacts:
+  paths:
+    - /builds/sysClean/sysjourney_esp32/build/hello-world.bin

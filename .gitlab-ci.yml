@@ -24,5 +24,4 @@ stages:
 build:
   stage: build
   script:
-    - make oldconfig
-    - make all
+    - make all V=1

@@ -7,7 +7,7 @@ before_script:
   - rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
   - mkdir -p /esp
-  - kdir /esp/esp-idf
+  - mkdir /esp/esp-idf
 
   - wget -O /esp/esp-32-toolchain.tar.gz https://dl.espressif.com/dl/xtensa-esp32-elf-linux64-1.22.0-73-ge28a011-5.2.0.tar.gz
   - tar -xzf /esp/esp-32-toolchain.tar.gz -C /esp

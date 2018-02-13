@@ -296,11 +296,9 @@ void run(void* data) {
                 }// *** Handle GSM modem responses ***
 
                 if(disconectPPP) {
-                        ESP_LOGE(TAG, "call pppapi_close close");
                         pppapi_close(ppp, 0);
                         vTaskDelay(15000 / portTICK_PERIOD_MS); /*mysterious time to get the ppp connection close*/
                         if (data) free(data); // free data buffer
-                        ESP_LOGE(TAG, "call ppp_free close");
                         if (ppp) ppp_free(ppp);
                         if (ppp_data) free(ppp_data);
                         atCmd_waitResponse("AT+CGACT=0,1\r\n", GSM_OK_Str, "NO CARRIER", 14, 10000, NULL, 0);
@@ -528,7 +526,7 @@ void GPRS::getTerminalID(void *buf) {
  */
 int GPRS::sent_data(const char* data, u32_t len) {
 
-        int socket_fd, n_fails = 0;
+        int socket_fd, n_fails = 0, nfails_send = 0;
         struct sockaddr_in sa;
         char recv_buf[len];
         ssize_t bytes_read = 0;
@@ -557,6 +555,10 @@ int GPRS::sent_data(const char* data, u32_t len) {
                         ESP_LOGE(TAG_SOCKET, "connect failed \n");
                         close(socket_fd);
                         vTaskDelay(1000 / portTICK_PERIOD_MS);
+                        nfails_send++; /*TRY TO SEND N TIMES*/
+                        if (nfails_send > 5) {
+                          break;
+                        }
                         continue;
                 }
 
@@ -576,7 +578,7 @@ int GPRS::sent_data(const char* data, u32_t len) {
                 do {
                         bytes_read = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
                         if (bytes_read < 0) ESP_LOGE(TAG_SOCKET,"recv problem");
-                        n_fails++;
+                        n_fails++;/*TRY TO Receive*/
                 } while (bytes_read < 1 && n_fails < 5);
                 ESP_LOGI(TAG_SOCKET, "Received from server %d\n", (int)recv_buf[0]);
                 break;
@@ -622,6 +624,9 @@ int GPRS::encode_data(char *dth, char *imei, char *cod_linha, char *cod_motor) {
                         recv = sent_data((const char *)txpacket, 41);
                         if(recv > 0){
                           stop();
+                          while (conn_ok != GSM_STATE_ENDED) {
+                            vTaskDelay(300 / portTICK_RATE_MS);
+                          }
                           return recv;
                         }
 
@@ -631,6 +636,8 @@ int GPRS::encode_data(char *dth, char *imei, char *cod_linha, char *cod_motor) {
         } while(nfails < 3);
 
         stop();
-
+        while (conn_ok != GSM_STATE_ENDED) {
+          vTaskDelay(300 / portTICK_RATE_MS);
+        }
         return recv;
 }

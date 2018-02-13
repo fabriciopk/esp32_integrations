@@ -288,10 +288,10 @@ void verify_time(void *pvParameter){
 //    printf("Iniciando verify_time\n");
     int count = 0;
     while(timer_running){
-        if(count > 120){
+        if(count > 600){
             buzzer.beep(cancel_beep);
         }
-        vTaskDelay(500 / portTICK_PERIOD_MS);
+        vTaskDelay(100 / portTICK_PERIOD_MS);
         count++;
     }
 //    printf("Encerrando verify_time\n");
@@ -304,10 +304,6 @@ void app_main() {
 
     lcd.begin(16, 2);
     read_data_memory();
-    current_state = 0;
-    write_data_memory();
-
-//    printf("Leitura dos dasdos: Codigo motorista: %s\n", cod_motorista);
 
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     lcd_write("Bem Vindo ao", "SysJourney");
@@ -327,7 +323,7 @@ void app_main() {
 
                 timer_running = false;
                 confirm(start_beep, current_state + 1);
-                vTaskDelay(500 / portTICK_PERIOD_MS);    //Time necessary to finish verify_time task  
+                vTaskDelay(500 / portTICK_PERIOD_MS);    //Time necessary to finish verify_time task
 
             } else if (key == '*') {
 

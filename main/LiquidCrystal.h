@@ -49,7 +49,7 @@ class LiquidCrystal {
 public:
     LiquidCrystal(gpio_num_t rs, gpio_num_t enable,
                   gpio_num_t d0, gpio_num_t d1, gpio_num_t d2, gpio_num_t d3);
-    void begin(uint8_t cols, uint8_t rows, uint8_t charsize = LCD_5x8DOTS);
+    void begin(uint8_t cols, uint8_t rows);
     void clear();
     void home();
     void setCursor(uint8_t row, uint8_t col);

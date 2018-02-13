@@ -20,14 +20,14 @@ LiquidCrystal::LiquidCrystal(gpio_num_t rs,  gpio_num_t enable,
 
   _displayfunction = LCD_4BITMODE | LCD_2LINE | LCD_5x8DOTS;
 
-  begin(16, 2);
+
 }
 
 
-void LiquidCrystal::begin(uint8_t cols, uint8_t lines, uint8_t dotsize) {
-    if (lines > 1) {
-        _displayfunction |= LCD_2LINE;
-    }
+void LiquidCrystal::begin(uint8_t cols, uint8_t lines) {
+//    if (lines > 1) {
+//        _displayfunction |= LCD_2LINE;
+//    }
 	_numlines = lines;
 	setRowOffsets(0x00, 0x40, 0x00 + cols, 0x40 + cols);
 

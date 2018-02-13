@@ -30,23 +30,28 @@
 #define keypad_col4_pin GPIO_NUM_27
 
 
-
-
 class Keypad {
 public:
 
 	Keypad();
-    char getKey();
+    char get_key(bool *block_read);
 
 
 private:
-    void pin_mode(gpio_num_t _pin, int mode);
+
+    char keypadKeys[ROWS][COLS] = {{'1','2','3','A'},
+                                    {'4','5','6','B'},
+                                    {'7','8','9','C'},
+                                    {'*','0','#','D'}};
+
+    gpio_num_t rowPins[ROWS] = {keypad_row1_pin, keypad_row2_pin, keypad_row3_pin, keypad_row4_pin};
+    gpio_num_t colPins[COLS] = {keypad_col1_pin, keypad_col2_pin, keypad_col3_pin, keypad_col4_pin};
+
+
+	void pin_mode(gpio_num_t _pin, int mode);
     void digital_write(gpio_num_t _pin, int level);
     int digital_read(gpio_num_t _pin);
     void begin();
-
-    char *keymap;
-
 
 
 };

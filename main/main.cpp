@@ -380,7 +380,7 @@ void app_main() {
             int n_times = 0;
             while (true){
                 int response = gprs.encode_data(date_time, terminal_ID, cod_motorista, cod_linha);
-                if(response!=0 && n_times < 3)
+                if(response !=0 && n_times < 3)
                     break;
                 n_times++;
             }
@@ -406,7 +406,7 @@ void app_main() {
 
             gprs.getTerminalID(terminal_ID);
             gprs.getTime(date_time);
-
+            int n_times = 0;
             while (true){
                 int response = gprs.encode_data(date_time, terminal_ID, cod_motorista, cod_linha);
                 if(response!=0 && n_times < 3)

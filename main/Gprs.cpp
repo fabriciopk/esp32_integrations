@@ -137,6 +137,11 @@ int get_gsm_status(){
 }
 
 private:
+
+/**
+ * @brief Handle PPP status events.
+ * see https://github.com/yarrick/lwip/blob/master/doc/ppp.txt
+ */
 static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
         struct netif *pppif = ppp_netif(pcb);
         LWIP_UNUSED_ARG(ctx);
@@ -209,7 +214,7 @@ static void ppp_status_cb(ppp_pcb *pcb, int err_code, void *ctx) {
 }
 
 /**
- * @brief Handle sending to GSM modem ***
+ * @brief Handle sending data to GSM modem
  */
 static u32_t ppp_output_callback(ppp_pcb *pcb, u8_t *data, u32_t len, void *ctx) {
         // *** Handle sending to GSM modem ***
@@ -218,7 +223,7 @@ static u32_t ppp_output_callback(ppp_pcb *pcb, u8_t *data, u32_t len, void *ctx)
         return ret;
 }
 /**
- * @brief Perform the task handling for gprs ppp client
+ * @brief Task for the PPP connection with GSM modem
  */
 void run(void* data) {
 
@@ -236,18 +241,17 @@ void run(void* data) {
         GSM_MGR_InitCmds[6].cmd = PPP_ApnATReq;
         GSM_MGR_InitCmds[6].cmdSize = strlen(PPP_ApnATReq);
 
-        ESP_LOGI(TAG,"Gsm init start");
-        // *** Disconnect if connected ***
-        delay(1000);
+        ESP_LOGI(TAG,"PPP OVER GSM START");
+        // *** Try disconnect if before connected ***
         while (uart_read_bytes(uart_num, (uint8_t*)ppp_data, BUF_SIZE, 100 / portTICK_RATE_MS)) {
                 delay(100);
         }
-
         atCmd_waitResponse("AT+CGACT=0,1\r\n", GSM_OK_Str, "NO CARRIER", 14, 5000, NULL, 0);
+
         disconectPPP = 0;
+
         while(1)
         {
-                /*Gsm init*/
                 int gsmCmdIter = 0, nfail = 0;
                 while(1)
                 {
@@ -261,7 +265,7 @@ void run(void* data) {
                         }
                         gsmCmdIter++;
                         vTaskDelay(500 / portTICK_PERIOD_MS);
-                }
+                }/*Send all the GSM init commands of GSM_MGR_InitCmds*/
 
                 ppp = pppapi_pppos_create(&ppp_netif,
                                           ppp_output_callback, ppp_status_cb, NULL);
@@ -272,6 +276,7 @@ void run(void* data) {
                         return;
                 }
 
+                /*see https://github.com/yarrick/lwip/blob/master/doc/ppp.txt*/
                 ppp->settings.persist = 0;
                 pppapi_set_default(ppp);
                 pppapi_set_auth(ppp, PPPAUTHTYPE_ANY, PPP_User, PPP_Pass);
@@ -315,7 +320,8 @@ typedef struct
         uint32_t timeoutMs;
 }GSM_Cmd;
 
-/*GSM INIT AT COMANDS LIST*/
+/*GSM INIT AT COMANDS LIST, all this commands are used for
+*  start a PPP over serial gsm modem conection*/
 GSM_Cmd GSM_MGR_InitCmds[11] =
 {
         {
@@ -390,7 +396,7 @@ GSM_Cmd GSM_MGR_InitCmds[11] =
 
 
 /**
- * @brief Configure the communication with the gsm module
+ * @brief Configure the UART communication with the gsm module
  */
 
 void GPRS::configGprsUart() {
@@ -405,7 +411,7 @@ void GPRS::configGprsUart() {
                 .parity = UART_PARITY_DISABLE,
                 .stop_bits = UART_STOP_BITS_1,
                 .flow_ctrl = UART_HW_FLOWCTRL_DISABLE,
-                  .rx_flow_ctrl_thresh = 122
+                .rx_flow_ctrl_thresh = 122
         };
         //Configure UART1 parameters
         uart_param_config(uart_num, &uart_config);
@@ -413,7 +419,9 @@ void GPRS::configGprsUart() {
         uart_driver_install(uart_num, BUF_SIZE * 2, BUF_SIZE * 2, 0, NULL, 0);
 
 }
-
+/*
+ * @brief GSM costructor, instantiate PPPtask and config the uart
+ */
 GPRS::GPRS() {
         ppp_task = new PPPtask("ppp_task");
         configGprsUart();
@@ -423,7 +431,9 @@ GPRS::~GPRS(){
         if(ppp_task) free(ppp_task);
         ESP_LOGI(TAG,"Our aowesome class just died");
 }
-
+/*
+ * @brief Start ppp task, set status connection variable
+ */
 void GPRS::start() {
         conn_ok = GSM_STATE_IDLE;
         ppp_task->start();
@@ -443,7 +453,6 @@ Get time from gprs tracker, and clean the serial buffer
         [y_high, y_low, month, day, hour, minute, second ]
 */
 void GPRS::getTime(void *buf) {
-        int res=0;
         memset(buf, 0, 7);
         char tmp[7];
 
@@ -461,7 +470,6 @@ void GPRS::getTime(void *buf) {
                 sscanf(ptr,"+CCLK: \"%d/%d/%d,%d:%d:%d", &dt[0],&dt[1],&dt[2],&dt[3],&dt[4],&dt[5]);
                 for(int i=0; i<7; i++){
                   tmp[i] = (char)dt[i];
-                  printf("%d\n", (int)tmp[i]);
                 }
                 memcpy(buf, tmp, 7);
         }else{
@@ -474,13 +482,14 @@ void GPRS::getTime(void *buf) {
 }
 
 /*
-Request product serial number identification(IMEI)
-return a list with 8 integer numbers
+* @brief Request product serial number identification(IMEI)
+* @param [out] buf return a list with 8 integer numbers
 */
+
 void GPRS::getTerminalID(void *buf) {
 
         int res=0;
-        memset(buf, 0, 15);
+        memset(buf, 0, 8);
         res = atCmd_waitResponse("ATE1\r\n", GSM_OK_Str, NULL, 6, 1000, NULL, 0);
         if(res != 1) return;
         //ask for the terminal IMEI
@@ -494,8 +503,17 @@ void GPRS::getTerminalID(void *buf) {
         atCmd_waitResponse("ATE0\r\n", GSM_OK_Str, NULL, 6, 1000, NULL, 0);
         //check if we receive the echo from device
         char *ptr = strstr(ser_buffer, "AT+CGSN");
+        char tmp[8];
         if( ptr != NULL) {
-                memcpy(buf, ptr+13, 15);
+                int z, j =0;
+                char s[2];
+                for (int i = 0; i < 15; i+=2) {
+                  memcpy(s, ptr + 13 + i ,2);
+                  z = atoi(s);
+                  tmp[j] = (char)z;
+                  j++;
+                }
+                memcpy(buf, tmp, 8);
         }else{
                 ESP_LOGE(TAG_SOCKET, "Prolem get imei");
                 free(ser_buffer);
@@ -504,13 +522,17 @@ void GPRS::getTerminalID(void *buf) {
         free(ser_buffer);
 }
 
-
+/*
+* @brief Open a new socket and send data to server
+* @param [in] a list of bytes to send
+* @param [in] len len of the data
+*/
 int GPRS::sent_data(const char* data, u32_t len) {
 
         int socket_fd, n_fails = 0;
         struct sockaddr_in sa;
         char recv_buf[len];
-        ssize_t bytes_read;
+        ssize_t bytes_read = 0;
 
         while(1) {
                 /*wait for the gsm connection*/
@@ -556,11 +578,52 @@ int GPRS::sent_data(const char* data, u32_t len) {
                         bytes_read = recv(socket_fd, recv_buf, sizeof(recv_buf), 0);
                         if (bytes_read < 0) ESP_LOGE(TAG_SOCKET,"recv problem");
                         n_fails++;
-                } while (bytes_read < len && n_fails < 5);
-                ESP_LOGI(TAG_SOCKET, "Received from server %s\n", recv_buf);
+                } while (bytes_read < 1 && n_fails < 5);
+                ESP_LOGI(TAG_SOCKET, "Received from server %d\n", (int)recv_buf[0]);
                 break;
         }
 
         close(socket_fd);
         return bytes_read;
+}
+
+/*
+0x20, 0x20, data_lenth, packet_id, data0, data1, ...., datan, check_h, check_l, 0x0D, 0x0A
+* @brief Encode sysjourney data
+* @param [in] dth
+* @param [in] imei
+* @param [in] cod_linha
+* @param [in] cod_motor
+* @return 0 if data was not sent else the byte received from server
+*/
+
+int GPRS::encode_data(char *dth, char *imei, char *cod_linha, char *cod_motor) {
+
+  uint8_t txpacket[56]    = {0};
+  txpacket[0]            = 0x20;
+  txpacket[1]            = 0x20;
+  txpacket[2]            = 0x29;
+
+  memcpy(txpacket+3, dth, 6);
+  memcpy(txpacket+9, imei, 8);
+  memcpy(txpacket+17, cod_linha, 10);
+  memcpy(txpacket+27, cod_motor, 10);
+
+  txpacket[37]            = 0x33; //checksum l
+  txpacket[38]            = 0x34; //checksum h
+
+  txpacket[39]            = 0x0D;
+  txpacket[40]            = 0x0A;
+
+  int nfails = 0, recv=0;
+  do {
+    if (conn_ok != GSM_STATE_CONNECTED) {
+      recv = sent_data((const char *)txpacket, 41);
+      if(recv > 0) return recv;
+    }
+    vTaskDelay(3000 / portTICK_RATE_MS);
+    nfails++;
+  } while(nfails < 3);
+
+  return recv;
 }

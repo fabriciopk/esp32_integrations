@@ -366,19 +366,19 @@ void app_main() {
             if(current_state == 2)
                 confirm(confirm_beep, current_state + 1);
             block_read = true;
-            vTaskDelay(500 / portTICK_PERIOD_MS);  //Time necessary to finish verify_time task  
+            vTaskDelay(500 / portTICK_PERIOD_MS);  //Time necessary to finish verify_time task
 
         } else if (current_state == 3) {
             lcd_write("Enviando", "Dados");
 
             gprs.getTerminalID(terminal_ID);
             gprs.getTime(date_time);
-
+            int n_times = 0;
             while (true){
                 int response = gprs.encode_data(date_time, terminal_ID, cod_motorista, cod_linha);
-                printf("Response %d\n", response);
-                if(response!=0)
+                if(response !=0 && n_times < 3)
                     break;
+                n_times++;
             }
 
 
@@ -402,11 +402,10 @@ void app_main() {
 
             gprs.getTerminalID(terminal_ID);
             gprs.getTime(date_time);
-
+            int n_times = 0;
             while (true){
                 int response = gprs.encode_data(date_time, terminal_ID, cod_motorista, cod_linha);
-                printf("Response %d\n", response);
-                if(response!=0)
+                if(response!=0 && n_times < 3)
                     break;
             }
             lcd_write("Jornada", "Encerrada");

@@ -25,10 +25,10 @@ extern "C"
 #define GSM_STATE_ENDED          97
 
 
-#define BUF_SIZE (1024)
+#define BUF_SIZE (2048)
 #define UART_BDRATE 115200
-#define UART_GPIO_TX 10
-#define UART_GPIO_RX 9
+#define UART_GPIO_TX 17
+#define UART_GPIO_RX 16
 #define GSM_OK_Str "OK"
 
 #define SENDER_PORT_NUM 5555

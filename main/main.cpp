@@ -30,10 +30,10 @@ using namespace std;
 
 #define lcd_rs_pin GPIO_NUM_23
 #define lcd_en_pin GPIO_NUM_22
-#define lcd_d0_pin GPIO_NUM_19
-#define lcd_d1_pin GPIO_NUM_18
-#define lcd_d2_pin GPIO_NUM_17
-#define lcd_d3_pin GPIO_NUM_16
+#define lcd_d0_pin GPIO_NUM_21 //19
+#define lcd_d1_pin GPIO_NUM_19 //18
+#define lcd_d2_pin GPIO_NUM_18 //17
+#define lcd_d3_pin GPIO_NUM_5 //16
 
 //RFID_DEFAULT_MOSI_PIN = GPIO_NUM_13
 //RFID_DEFAULT_MISO_PIN = GPIO_NUM_12
@@ -52,7 +52,8 @@ using namespace std;
 //#define UART_GPIO_TX 10 AZUL
 //#define UART_GPIO_RX 9  Verde
 
-
+// GPIO_07 saída (controle do relé)
+// GPIO_08 entrada (pós-chave)
 
 
 //Keypad keypad(makeKeymap(hexaKeys), *rowPins, *colPins, ROWS, COLS );
@@ -305,6 +306,8 @@ void app_main() {
     lcd.begin(16, 2);
     read_data_memory();
 
+    current_state = 0;
+
     vTaskDelay(1000 / portTICK_PERIOD_MS);
     lcd_write("Bem Vindo ao", "SysJourney");
 
@@ -342,7 +345,7 @@ void app_main() {
 
             lcd_write("Informe Codigo", "do Motorista");
             block_read = true;   // Lock read_rfid task
-            xTaskCreate(&read_rfid, "read_rfid", 2048, NULL, 1, NULL);
+//            xTaskCreate(&read_rfid, "read_rfid", 2048, NULL, 1, NULL);
             read_code();
 
             timer_running = false;  //Release lock from verify_time task
@@ -359,7 +362,7 @@ void app_main() {
             lcd_write("Informe Codigo", "da Linha");
 
             block_read = true;    // Lock read_rfid task
-            xTaskCreate(&read_rfid, "read_rfid", 2048, NULL, 1, NULL);
+//            xTaskCreate(&read_rfid, "read_rfid", 2048, NULL, 1, NULL);
             read_code();
 
             timer_running = false;  //Release lock from verify_time task
@@ -411,6 +414,8 @@ void app_main() {
             lcd_write("Jornada", "Encerrada");
             vTaskDelay(1000 / portTICK_PERIOD_MS);
             confirm(confirm_beep, 0);
+        } else {
+            current_state = 0;
         }
     }
 }

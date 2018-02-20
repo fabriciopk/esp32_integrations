@@ -345,7 +345,7 @@ void app_main() {
 
             lcd_write("Informe Codigo", "do Motorista");
             block_read = true;   // Lock read_rfid task
-//            xTaskCreate(&read_rfid, "read_rfid", 2048, NULL, 1, NULL);
+            xTaskCreate(&read_rfid, "read_rfid", 2048, NULL, 1, NULL);
             read_code();
 
             timer_running = false;  //Release lock from verify_time task
@@ -362,7 +362,7 @@ void app_main() {
             lcd_write("Informe Codigo", "da Linha");
 
             block_read = true;    // Lock read_rfid task
-//            xTaskCreate(&read_rfid, "read_rfid", 2048, NULL, 1, NULL);
+            xTaskCreate(&read_rfid, "read_rfid", 2048, NULL, 1, NULL);
             read_code();
 
             timer_running = false;  //Release lock from verify_time task

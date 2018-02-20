@@ -277,42 +277,30 @@ void run(void* data) {
 
                 /*see https://github.com/yarrick/lwip/blob/master/doc/ppp.txt*/
                 ppp->settings.persist = 0;
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
-            printf("\n\n\n\nGot here motherfucker\n\n\n\n\n");
-
                 pppapi_set_default(ppp);
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
-            printf("\n\n\n\nGot here motherfucker 2\n\n\n\n\n");
                 pppapi_set_auth(ppp, PPPAUTHTYPE_ANY, PPP_User, PPP_Pass);
-            printf("\n\n\n\nGot here motherfucker  3\n\n\n\n\n");
+
                 //pppapi_set_auth(ppp, PPPAUTHTYPE_NONE, PPP_User, PPP_Pass);
-                vTaskDelay(1000 / portTICK_PERIOD_MS);
                 pppapi_connect(ppp, 0);
-            printf("\n\n\n\nGot here motherfucker 4\n\n\n\n\n");
+
 
                 vTaskDelay(1000 / portTICK_PERIOD_MS);
                 conn_ok = 99;
             // *** Handle GSM modem responses ***
                 while(1) {
-//                    printf("\n\n\n\nGot here motherfucker 5\n\n\n\n\n");
+
                         memset(ppp_data, 0, BUF_SIZE);
-//                    printf("\n\n\n\nGot here motherfucker 6\n\n\n\n\n");
                         int len = uart_read_bytes(uart_num, (uint8_t*)ppp_data, BUF_SIZE, 30 / portTICK_RATE_MS);
-//
-//                        printf("\n\n\n\nGot here motherfucker 111\n\n\n\n\n");
+
                         if(len > 0) {
-//                            printf("\n\n\n\nGot here motherfucker 7 %d\n\n\n\n\n", len);
                                 pppos_input_tcpip(ppp, (uint8_t*)ppp_data, len);
                         }
                         if (disconectPPP) {
-//                            printf("\n\n\n\nGot here motherfucker 8\n\n\n\n\n");
                                 break;
                         }
-//                    vTaskDelay(100 / portTICK_PERIOD_MS);
                 }// *** Handle GSM modem responses ***
 
                 if(disconectPPP) {
-                    printf("\n\n\n\nGot here motherfucker 9\n\n\n\n\n");
                         pppapi_close(ppp, 0);
                         vTaskDelay(15000 / portTICK_PERIOD_MS); /*mysterious time to get the ppp connection close*/
                         if (data) free(data); // free data buffer

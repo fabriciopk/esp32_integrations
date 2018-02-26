@@ -6,6 +6,7 @@
 
 #include "Task.h"
 #include "MFRC522.h"
+#include "GPIO.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
@@ -44,16 +45,16 @@ using namespace std;
 //#define keypad_row2_pin GPIO_NUM_34
 //#define keypad_row3_pin GPIO_NUM_35
 //#define keypad_row4_pin GPIO_NUM_32
-//#define keypad_col1_pin GPIO_NUM_33
+//#define keypad_col1_pin GPIO_NUM_33  This will be an other row that needs(pull-up input)
 //#define keypad_col2_pin GPIO_NUM_25
 //#define keypad_col3_pin GPIO_NUM_26
 //#define keypad_col4_pin GPIO_NUM_27
 
-//#define UART_GPIO_TX 10 AZUL
-//#define UART_GPIO_RX 9  Verde
+//#define UART_GPIO_TX 17 AZUL
+//#define UART_GPIO_RX 16  Verde
 
-// GPIO_07 saída (controle do relé)
-// GPIO_08 entrada (pós-chave)
+#define relay_ctl GPIO_NUM_10  //saída (controle do relé)
+#define post_key GPIO_NUM_36      //entrada (pós-chave)
 
 
 //Keypad keypad(makeKeymap(hexaKeys), *rowPins, *colPins, ROWS, COLS );
@@ -78,6 +79,7 @@ char terminal_ID[8];
 char key;
 bool block_read = true;
 bool timer_running = true;
+bool journey_control = true;
 
 void read_data_memory(){
 
@@ -209,8 +211,7 @@ void read_code(){
                 temp[size] = key;
                 size++;
             } else{
-                lcd_write("Codigo", "Incorreto");
-                buzzer.beep(wrong_key);
+                wrongkey();
             }
         }
         else if(key == 'B'){
@@ -285,6 +286,17 @@ void read_rfid(void *pvParameter){
     vTaskDelete(NULL);
 }
 
+
+void close_relay(){
+    ESP32CPP::GPIO::setOutput(relay_ctl);
+    ESP32CPP::GPIO::high(relay_ctl);
+}
+
+void open_relay(){
+    ESP32CPP::GPIO::setOutput(relay_ctl);
+    ESP32CPP::GPIO::low(relay_ctl);
+}
+
 void verify_time(void *pvParameter){
 //    printf("Iniciando verify_time\n");
     int count = 0;
@@ -294,25 +306,56 @@ void verify_time(void *pvParameter){
         }
         vTaskDelay(100 / portTICK_PERIOD_MS);
         count++;
+        if(ESP32CPP::GPIO::read(post_key)){
+            lcd_write("Desligando", "SysJourney");
+            buzzer.beep(end_beep);
+            for(int i = 0; i<6; i++){
+                lcd_write("Desligando", "SysJourney");
+                vTaskDelay(500 / portTICK_PERIOD_MS);
+            }
+
+            open_relay();
+        }
     }
 //    printf("Encerrando verify_time\n");
     vTaskDelete(NULL);
 
 }
 
+void verify_end(void *pvParameter){
+
+    journey_control = true;
+    while(journey_control){
+        if(ESP32CPP::GPIO::read(post_key)){
+            buzzer.beep(cancel_beep);
+            vTaskDelay(500 / portTICK_PERIOD_MS);
+        }
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+    }
+    vTaskDelete(NULL);
+}
+
+
+
 void app_main() {
+
+
+    ESP32CPP::GPIO::setInput(post_key);
+    close_relay();
+
+
+    vTaskDelay(1000 / portTICK_PERIOD_MS);
     mfrc522.PCD_Init();        // Init MFRC522
 
     lcd.begin(16, 2);
     read_data_memory();
 
-    current_state = 0;
+    current_state = 0;    // to be removed
 
-    vTaskDelay(1000 / portTICK_PERIOD_MS);
+    vTaskDelay(500 / portTICK_PERIOD_MS);
     lcd_write("Bem Vindo ao", "SysJourney");
 
     buzzer.beep(welcome_beep);
-    vTaskDelay(500 / portTICK_PERIOD_MS);
 
     while (1) {
         if (current_state == 0) {
@@ -391,9 +434,11 @@ void app_main() {
 
         } else if (current_state == 4) {
             while (true) {
+                xTaskCreate(&verify_end, "verify_end", 1024, NULL, 3, NULL);
                 lcd_write("Jornada", "em Progresso");
                 key = keypad.get_key(&block_read);
                 if (key == 'B') {
+                    journey_control = false;
                     confirm(end_beep, current_state + 1);
                     break;
                 } else

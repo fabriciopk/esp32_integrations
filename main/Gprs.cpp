@@ -249,8 +249,7 @@ void run(void* data) {
 
         disconectPPP = 0;
 
-        while(1)
-        {
+        while(1) {
                 int gsmCmdIter = 0, nfail = 0;
                 while(1)
                 {
@@ -263,7 +262,7 @@ void run(void* data) {
                                 break;
                         }
                         gsmCmdIter++;
-                        vTaskDelay(500 / portTICK_PERIOD_MS);
+                        //vTaskDelay(500 / portTICK_PERIOD_MS);
                 }/*Send all the GSM init commands of GSM_MGR_InitCmds*/
 
                 ppp = pppapi_pppos_create(&ppp_netif,
@@ -301,8 +300,10 @@ void run(void* data) {
                 }// *** Handle GSM modem responses ***
 
                 if(disconectPPP) {
-                        pppapi_close(ppp, 0);
-                        vTaskDelay(15000 / portTICK_PERIOD_MS); /*mysterious time to get the ppp connection close*/
+                        int err = pppapi_close(ppp, 0);
+                        printf("\n\n\n\n Error message: %d \n\n\n\n", err);
+                        while (conn_ok != GSM_STATE_DISCONNECTED)
+                            vTaskDelay(100 / portTICK_PERIOD_MS); /*mysterious time to get the ppp connection close*/
                         if (data) free(data); // free data buffer
                         if (ppp) ppp_free(ppp);
                         if (ppp_data) free(ppp_data);
@@ -324,8 +325,7 @@ typedef struct
 
 /*GSM INIT AT COMANDS LIST, all this commands are used for
  *  start a PPP over serial gsm modem conection*/
-GSM_Cmd GSM_MGR_InitCmds[11] =
-{
+GSM_Cmd GSM_MGR_InitCmds[11] = {
         {
                 .cmd = "AT\r\n",
                 .cmdSize = sizeof("AT\r\n")-1,
@@ -624,20 +624,20 @@ int GPRS::encode_data(char *dth, char *imei, char *cod_linha, char *cod_motor) {
         txpacket[40]            = 0x0A;
         int nfails = 0, recv=0;
         do {
-                if (conn_ok != GSM_STATE_CONNECTED) {
-                        vTaskDelay(1000 / portTICK_RATE_MS);
-                        recv = sent_data((const char *)txpacket, 41);
-                        if(recv > 0){
-                          stop();
-                          while (conn_ok != GSM_STATE_ENDED) {
-                            vTaskDelay(300 / portTICK_RATE_MS);
-                          }
-                          return recv;
-                        }
+            if (conn_ok != GSM_STATE_CONNECTED) {
+                    vTaskDelay(1000 / portTICK_RATE_MS);
+                    recv = sent_data((const char *)txpacket, 41);
+                    if(recv > 0){
+                      stop();
+                      while (conn_ok != GSM_STATE_ENDED) {
+                        vTaskDelay(300 / portTICK_RATE_MS);
+                      }
+                      return recv;
+                    }
 
-                }
-                vTaskDelay(3000 / portTICK_RATE_MS);
-                nfails++;
+            }
+            vTaskDelay(3000 / portTICK_RATE_MS);
+            nfails++;
         } while(nfails < 3);
 
         stop();
